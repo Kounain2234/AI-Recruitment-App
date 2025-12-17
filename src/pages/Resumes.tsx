@@ -118,24 +118,49 @@ const Resumes = () => {
       // Update status to processing
       setUploadedFiles((prev) =>
         prev.map((f) =>
-          f.id === file.id ? { ...f, status: "processing", progress: 20 } : f
+          f.id === file.id ? { ...f, status: "processing", progress: 10 } : f
         )
       );
 
-      // Simulate processing delay
+      // Upload file to storage
+      const filePath = `${user.id}/${Date.now()}_${file.file.name}`;
+      const { error: uploadError, data: uploadData } = await supabase.storage
+        .from("resumes")
+        .upload(filePath, file.file);
+
+      if (uploadError) {
+        setUploadedFiles((prev) =>
+          prev.map((f) =>
+            f.id === file.id ? { ...f, status: "error", error: uploadError.message } : f
+          )
+        );
+        continue;
+      }
+
+      // Update progress after upload
+      setUploadedFiles((prev) =>
+        prev.map((f) => (f.id === file.id ? { ...f, progress: 40 } : f))
+      );
+
+      // Get public URL for the resume
+      const { data: urlData } = supabase.storage
+        .from("resumes")
+        .getPublicUrl(filePath);
+
+      // Simulate AI processing delay
       await new Promise((r) => setTimeout(r, 1000));
 
       // Update progress
       setUploadedFiles((prev) =>
-        prev.map((f) => (f.id === file.id ? { ...f, progress: 60 } : f))
+        prev.map((f) => (f.id === file.id ? { ...f, progress: 70 } : f))
       );
 
-      await new Promise((r) => setTimeout(r, 800));
+      await new Promise((r) => setTimeout(r, 500));
 
       // Generate mock analysis result
       const mockResult = generateMockAnalysis(file.file.name, job?.title);
 
-      // Insert candidate into database
+      // Insert candidate into database with resume URL
       const { error } = await supabase.from("candidates").insert({
         job_id: selectedJob,
         user_id: user.id,
@@ -152,6 +177,7 @@ const Resumes = () => {
         growth_potential: mockResult.growthPotential,
         total_experience: mockResult.totalExperience,
         relevant_experience: mockResult.relevantExperience,
+        resume_url: urlData.publicUrl,
         status: "new",
       });
 
