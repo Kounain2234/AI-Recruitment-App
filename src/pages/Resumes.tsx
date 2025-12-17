@@ -108,10 +108,10 @@ const Resumes = () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    // Get job details for mock analysis
+    // Get job details for n8n workflow
     const job = jobs.find((j) => j.id === selectedJob);
 
-    // Process each file with mock AI analysis
+    // Process each file with n8n webhook
     for (let i = 0; i < uploadedFiles.length; i++) {
       const file = uploadedFiles[i];
 
@@ -124,7 +124,7 @@ const Resumes = () => {
 
       // Upload file to storage
       const filePath = `${user.id}/${Date.now()}_${file.file.name}`;
-      const { error: uploadError, data: uploadData } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from("resumes")
         .upload(filePath, file.file);
 
@@ -139,7 +139,7 @@ const Resumes = () => {
 
       // Update progress after upload
       setUploadedFiles((prev) =>
-        prev.map((f) => (f.id === file.id ? { ...f, progress: 40 } : f))
+        prev.map((f) => (f.id === file.id ? { ...f, progress: 30 } : f))
       );
 
       // Get public URL for the resume
@@ -147,52 +147,77 @@ const Resumes = () => {
         .from("resumes")
         .getPublicUrl(filePath);
 
-      // Simulate AI processing delay
-      await new Promise((r) => setTimeout(r, 1000));
-
-      // Update progress
+      // Update progress before n8n call
       setUploadedFiles((prev) =>
-        prev.map((f) => (f.id === file.id ? { ...f, progress: 70 } : f))
+        prev.map((f) => (f.id === file.id ? { ...f, progress: 50 } : f))
       );
 
-      await new Promise((r) => setTimeout(r, 500));
+      try {
+        // Call n8n webhook for AI analysis
+        const formData = new FormData();
+        formData.append("file", file.file);
+        formData.append("job_id", selectedJob);
+        formData.append("job_title", job?.title || "");
+        formData.append("user_id", user.id);
+        formData.append("resume_url", urlData.publicUrl);
 
-      // Generate mock analysis result
-      const mockResult = generateMockAnalysis(file.file.name, job?.title);
+        const response = await fetch("https://aiagentsworkbysk01.app.n8n.cloud/webhook/resume-screening", {
+          method: "POST",
+          body: formData,
+        });
 
-      // Insert candidate into database with resume URL
-      const { error } = await supabase.from("candidates").insert({
-        job_id: selectedJob,
-        user_id: user.id,
-        name: mockResult.name,
-        email: mockResult.email,
-        phone: mockResult.phone,
-        location: mockResult.location,
-        match_score: mockResult.matchScore,
-        predictive_score: mockResult.predictiveScore,
-        bias_score: mockResult.biasScore,
-        robust_points: mockResult.robust,
-        lacking_points: mockResult.lacking,
-        skills_analysis: mockResult.skills,
-        growth_potential: mockResult.growthPotential,
-        total_experience: mockResult.totalExperience,
-        relevant_experience: mockResult.relevantExperience,
-        resume_url: urlData.publicUrl,
-        status: "new",
-      });
-
-      if (error) {
+        // Update progress after n8n call
         setUploadedFiles((prev) =>
-          prev.map((f) =>
-            f.id === file.id ? { ...f, status: "error", error: error.message } : f
-          )
+          prev.map((f) => (f.id === file.id ? { ...f, progress: 80 } : f))
         );
-      } else {
+
+        if (!response.ok) {
+          throw new Error(`Webhook failed: ${response.statusText}`);
+        }
+
+        const analysisResult = await response.json();
+
+        // Insert candidate into database with analysis result
+        const { error } = await supabase.from("candidates").insert({
+          job_id: selectedJob,
+          user_id: user.id,
+          name: analysisResult.name || file.file.name.replace(/\.[^/.]+$/, ""),
+          email: analysisResult.email || null,
+          phone: analysisResult.phone || null,
+          location: analysisResult.location || null,
+          match_score: analysisResult.matchScore || analysisResult.match_score || null,
+          predictive_score: analysisResult.predictiveScore || analysisResult.predictive_score || null,
+          bias_score: analysisResult.biasScore || analysisResult.bias_score || null,
+          robust_points: analysisResult.robust || analysisResult.robust_points || [],
+          lacking_points: analysisResult.lacking || analysisResult.lacking_points || [],
+          skills_analysis: analysisResult.skills || analysisResult.skills_analysis || [],
+          growth_potential: analysisResult.growthPotential || analysisResult.growth_potential || null,
+          total_experience: analysisResult.totalExperience || analysisResult.total_experience || null,
+          relevant_experience: analysisResult.relevantExperience || analysisResult.relevant_experience || null,
+          resume_url: urlData.publicUrl,
+          parsed_data: analysisResult,
+          status: "new",
+        });
+
+        if (error) {
+          setUploadedFiles((prev) =>
+            prev.map((f) =>
+              f.id === file.id ? { ...f, status: "error", error: error.message } : f
+            )
+          );
+        } else {
+          setUploadedFiles((prev) =>
+            prev.map((f) =>
+              f.id === file.id
+                ? { ...f, status: "completed", progress: 100, result: analysisResult }
+                : f
+            )
+          );
+        }
+      } catch (webhookError: any) {
         setUploadedFiles((prev) =>
           prev.map((f) =>
-            f.id === file.id
-              ? { ...f, status: "completed", progress: 100, result: mockResult }
-              : f
+            f.id === file.id ? { ...f, status: "error", error: webhookError.message || "Webhook failed" } : f
           )
         );
       }
@@ -203,49 +228,6 @@ const Resumes = () => {
       title: "Analysis Complete",
       description: `${uploadedFiles.length} resume(s) analyzed successfully.`,
     });
-  };
-
-  const generateMockAnalysis = (filename: string, jobTitle?: string) => {
-    const names = [
-      "Sarah Johnson", "Michael Chen", "Emily Rodriguez", "David Kim",
-      "Jessica Taylor", "James Wilson", "Amanda Brown", "Christopher Lee",
-    ];
-    const locations = [
-      "San Francisco, CA", "New York, NY", "Austin, TX", "Seattle, WA",
-      "Denver, CO", "Boston, MA", "Los Angeles, CA", "Chicago, IL",
-    ];
-
-    const randomName = names[Math.floor(Math.random() * names.length)];
-    const matchScore = Math.floor(Math.random() * 40) + 60; // 60-100
-    const predictiveScore = Math.floor(Math.random() * 30) + 65; // 65-95
-
-    return {
-      name: randomName,
-      email: `${randomName.toLowerCase().replace(" ", ".")}@email.com`,
-      phone: "+1 (555) 123-4567",
-      location: locations[Math.floor(Math.random() * locations.length)],
-      matchScore,
-      predictiveScore,
-      biasScore: Math.floor(Math.random() * 20) + 5,
-      skills: [
-        { name: "React", match: Math.floor(Math.random() * 30) + 70 },
-        { name: "TypeScript", match: Math.floor(Math.random() * 40) + 60 },
-        { name: "Node.js", match: Math.floor(Math.random() * 50) + 50 },
-        { name: "Python", match: Math.floor(Math.random() * 40) + 40 },
-      ],
-      robust: [
-        `Strong experience in ${jobTitle || "software development"}`,
-        "Excellent communication and teamwork skills",
-        "Proven track record of delivering projects on time",
-      ],
-      lacking: [
-        "Limited experience with cloud infrastructure",
-        "Could benefit from more leadership experience",
-      ],
-      growthPotential: ["high", "medium", "low"][Math.floor(Math.random() * 2)] as string,
-      totalExperience: `${Math.floor(Math.random() * 8) + 2} years`,
-      relevantExperience: `${Math.floor(Math.random() * 5) + 1} years`,
-    };
   };
 
   const completedCount = uploadedFiles.filter((f) => f.status === "completed").length;
