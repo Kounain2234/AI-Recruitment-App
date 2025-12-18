@@ -142,10 +142,19 @@ const Resumes = () => {
         prev.map((f) => (f.id === file.id ? { ...f, progress: 30 } : f))
       );
 
-      // Get public URL for the resume
-      const { data: urlData } = supabase.storage
+      // Get signed URL for the resume (bucket is private)
+      const { data: signedUrlData, error: signedUrlError } = await supabase.storage
         .from("resumes")
-        .getPublicUrl(filePath);
+        .createSignedUrl(filePath, 3600); // 1 hour expiry
+
+      if (signedUrlError) {
+        setUploadedFiles((prev) =>
+          prev.map((f) =>
+            f.id === file.id ? { ...f, status: "error", error: "Failed to generate resume URL" } : f
+          )
+        );
+        continue;
+      }
 
       // Update progress before n8n call
       setUploadedFiles((prev) =>
@@ -159,7 +168,7 @@ const Resumes = () => {
         formData.append("job_id", selectedJob);
         formData.append("job_title", job?.title || "");
         formData.append("user_id", user.id);
-        formData.append("resume_url", urlData.publicUrl);
+        formData.append("resume_url", signedUrlData.signedUrl);
 
         const response = await fetch("https://aiagentsworkbysk01.app.n8n.cloud/webhook/resume-screening", {
           method: "POST",
@@ -194,7 +203,7 @@ const Resumes = () => {
           growth_potential: analysisResult.growthPotential || analysisResult.growth_potential || null,
           total_experience: analysisResult.totalExperience || analysisResult.total_experience || null,
           relevant_experience: analysisResult.relevantExperience || analysisResult.relevant_experience || null,
-          resume_url: urlData.publicUrl,
+          resume_url: signedUrlData.signedUrl,
           parsed_data: analysisResult,
           status: "new",
         });
