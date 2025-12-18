@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -45,6 +45,9 @@ const experienceLevels = [
 ];
 
 const JobCreate = () => {
+  const { id } = useParams<{ id: string }>();
+  const isEditMode = Boolean(id);
+  
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");
@@ -57,6 +60,7 @@ const JobCreate = () => {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [pastedJD, setPastedJD] = useState("");
   const [loading, setLoading] = useState(false);
+  const [fetchingJob, setFetchingJob] = useState(false);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [generateForm, setGenerateForm] = useState({
     designation: "",
@@ -70,6 +74,35 @@ const JobCreate = () => {
 
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  // Fetch existing job data when in edit mode
+  useEffect(() => {
+    if (isEditMode && id) {
+      const fetchJob = async () => {
+        setFetchingJob(true);
+        const { data, error } = await supabase
+          .from("jobs")
+          .select("*")
+          .eq("id", id)
+          .single();
+
+        if (error) {
+          toast({ variant: "destructive", title: "Error", description: "Failed to load job data" });
+          navigate("/jobs");
+        } else if (data) {
+          setTitle(data.title || "");
+          setDescription(data.description || "");
+          setLocation(data.location || "");
+          setSelectedWorkTypes(data.work_type || []);
+          setYearsExperience(data.years_experience || "");
+          setMustHaveSkills(data.must_have_skills || []);
+          setGoodToHaveSkills(data.good_to_have_skills || []);
+        }
+        setFetchingJob(false);
+      };
+      fetchJob();
+    }
+  }, [id, isEditMode, navigate, toast]);
 
   const handleWorkTypeToggle = (type: string) => {
     setSelectedWorkTypes((prev) =>
@@ -154,8 +187,7 @@ ${generateForm.goodToHave ? `- Experience with: ${generateForm.goodToHave}` : "-
       return;
     }
 
-    const { error } = await supabase.from("jobs").insert({
-      user_id: user.id,
+    const jobData = {
       title,
       description,
       location,
@@ -163,13 +195,28 @@ ${generateForm.goodToHave ? `- Experience with: ${generateForm.goodToHave}` : "-
       years_experience: yearsExperience,
       must_have_skills: mustHaveSkills,
       good_to_have_skills: goodToHaveSkills,
-      status: "active",
-    });
+    };
+
+    let error;
+    if (isEditMode && id) {
+      const result = await supabase
+        .from("jobs")
+        .update(jobData)
+        .eq("id", id);
+      error = result.error;
+    } else {
+      const result = await supabase.from("jobs").insert({
+        ...jobData,
+        user_id: user.id,
+        status: "active",
+      });
+      error = result.error;
+    }
 
     if (error) {
       toast({ variant: "destructive", title: "Error", description: error.message });
     } else {
-      toast({ title: "Job created successfully!" });
+      toast({ title: isEditMode ? "Job updated successfully!" : "Job created successfully!" });
       navigate("/jobs");
     }
     setLoading(false);
@@ -184,9 +231,11 @@ ${generateForm.goodToHave ? `- Experience with: ${generateForm.goodToHave}` : "-
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Create Job</h1>
+            <h1 className="text-2xl font-bold text-foreground">
+              {isEditMode ? "Edit Job" : "Create Job"}
+            </h1>
             <p className="text-muted-foreground">
-              Upload a JD, paste text, or generate with AI.
+              {isEditMode ? "Update job details and requirements." : "Upload a JD, paste text, or generate with AI."}
             </p>
           </div>
         </div>
@@ -514,8 +563,8 @@ ${generateForm.goodToHave ? `- Experience with: ${generateForm.goodToHave}` : "-
                 <Button type="button" variant="outline" onClick={() => navigate(-1)}>
                   Cancel
                 </Button>
-                <Button type="submit" disabled={loading || !title}>
-                  {loading ? "Creating..." : "Create Job"}
+                <Button type="submit" disabled={loading || fetchingJob || !title}>
+                  {loading ? (isEditMode ? "Updating..." : "Creating...") : (isEditMode ? "Update Job" : "Create Job")}
                 </Button>
               </div>
             </form>
