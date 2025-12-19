@@ -1,1 +1,4 @@
 project_id = "aurukrkyacdriqmucpnl"
+
+[functions.resume-screening]
+verify_jwt = false
