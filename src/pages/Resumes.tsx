@@ -162,7 +162,7 @@ const Resumes = () => {
       );
 
       try {
-        // Call n8n webhook for AI analysis
+        // Call edge function to proxy n8n webhook (avoids CORS)
         const formData = new FormData();
         formData.append("file", file.file);
         formData.append("job_id", selectedJob);
@@ -170,7 +170,8 @@ const Resumes = () => {
         formData.append("user_id", user.id);
         formData.append("resume_url", signedUrlData.signedUrl);
 
-        const response = await fetch("https://aiagentsworkbysk01.app.n8n.cloud/webhook/resume-screening", {
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const response = await fetch(`${supabaseUrl}/functions/v1/resume-screening`, {
           method: "POST",
           body: formData,
         });
