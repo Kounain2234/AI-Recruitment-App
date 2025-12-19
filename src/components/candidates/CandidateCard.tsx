@@ -8,6 +8,17 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
   Mail,
   Phone,
   MapPin,
@@ -16,6 +27,7 @@ import {
   XCircle,
   Calendar,
   TrendingUp,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -27,6 +39,7 @@ interface CandidateCardProps {
 const CandidateCard = ({ candidate, onUpdate }: CandidateCardProps) => {
   const { toast } = useToast();
   const [updating, setUpdating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const updateStatus = async (status: string) => {
     setUpdating(true);
@@ -42,6 +55,22 @@ const CandidateCard = ({ candidate, onUpdate }: CandidateCardProps) => {
       onUpdate();
     }
     setUpdating(false);
+  };
+
+  const deleteCandidate = async () => {
+    setDeleting(true);
+    const { error } = await supabase
+      .from("candidates")
+      .delete()
+      .eq("id", candidate.id);
+
+    if (error) {
+      toast({ variant: "destructive", title: "Error", description: error.message });
+    } else {
+      toast({ title: "Candidate removed successfully" });
+      onUpdate();
+    }
+    setDeleting(false);
   };
 
   const getScoreColor = (score: number) => {
@@ -182,6 +211,36 @@ const CandidateCard = ({ candidate, onUpdate }: CandidateCardProps) => {
               </div>
 
               <div className="flex items-center gap-2">
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-muted-foreground hover:text-destructive"
+                      disabled={deleting}
+                    >
+                      <Trash2 className="w-4 h-4 mr-1" />
+                      Remove
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Remove candidate?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will permanently delete {candidate.name} from your candidates list. This action cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={deleteCandidate}
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      >
+                        Remove
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
                 {candidate.status !== "rejected" && (
                   <Button
                     variant="ghost"
