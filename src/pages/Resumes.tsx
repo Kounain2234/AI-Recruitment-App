@@ -170,25 +170,43 @@ const Resumes = () => {
         formData.append("user_id", user.id);
         formData.append("resume_url", signedUrlData.signedUrl);
 
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const response = await fetch(`${supabaseUrl}/functions/v1/resume-screening`, {
-          method: "POST",
+        const { data, error } = await supabase.functions.invoke("resume-screening", {
           body: formData,
         });
 
-        // Update progress after n8n call
+        // Update progress after webhook call
         setUploadedFiles((prev) =>
           prev.map((f) => (f.id === file.id ? { ...f, progress: 80 } : f))
         );
 
-        if (!response.ok) {
-          throw new Error(`Webhook failed: ${response.statusText}`);
+        if (error) {
+          const ctx = (error as any)?.context as Response | undefined;
+          let detailsText = "";
+          if (ctx && typeof ctx.text === "function") {
+            try {
+              detailsText = await ctx.text();
+            } catch {
+              // ignore
+            }
+          }
+
+          let message = error instanceof Error ? error.message : "Webhook failed";
+          if (detailsText) {
+            try {
+              const parsed = JSON.parse(detailsText);
+              message = parsed?.message ?? parsed?.error ?? detailsText;
+            } catch {
+              message = detailsText;
+            }
+          }
+
+          throw new Error(message);
         }
 
-        const analysisResult = await response.json();
+        const analysisResult = data as any;
 
         // Insert candidate into database with analysis result
-        const { error } = await supabase.from("candidates").insert({
+        const { error: insertError } = await supabase.from("candidates").insert({
           job_id: selectedJob,
           user_id: user.id,
           name: analysisResult.name || file.file.name.replace(/\.[^/.]+$/, ""),
@@ -196,23 +214,29 @@ const Resumes = () => {
           phone: analysisResult.phone || null,
           location: analysisResult.location || null,
           match_score: analysisResult.matchScore || analysisResult.match_score || null,
-          predictive_score: analysisResult.predictiveScore || analysisResult.predictive_score || null,
+          predictive_score:
+            analysisResult.predictiveScore || analysisResult.predictive_score || null,
           bias_score: analysisResult.biasScore || analysisResult.bias_score || null,
           robust_points: analysisResult.robust || analysisResult.robust_points || [],
           lacking_points: analysisResult.lacking || analysisResult.lacking_points || [],
           skills_analysis: analysisResult.skills || analysisResult.skills_analysis || [],
-          growth_potential: analysisResult.growthPotential || analysisResult.growth_potential || null,
-          total_experience: analysisResult.totalExperience || analysisResult.total_experience || null,
-          relevant_experience: analysisResult.relevantExperience || analysisResult.relevant_experience || null,
+          growth_potential:
+            analysisResult.growthPotential || analysisResult.growth_potential || null,
+          total_experience:
+            analysisResult.totalExperience || analysisResult.total_experience || null,
+          relevant_experience:
+            analysisResult.relevantExperience || analysisResult.relevant_experience || null,
           resume_url: signedUrlData.signedUrl,
           parsed_data: analysisResult,
           status: "new",
         });
 
-        if (error) {
+        if (insertError) {
           setUploadedFiles((prev) =>
             prev.map((f) =>
-              f.id === file.id ? { ...f, status: "error", error: error.message } : f
+              f.id === file.id
+                ? { ...f, status: "error", error: insertError.message }
+                : f
             )
           );
         } else {
