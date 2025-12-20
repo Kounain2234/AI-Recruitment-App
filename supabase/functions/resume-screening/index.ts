@@ -5,7 +5,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const N8N_WEBHOOK_URL = "https://aiagentsworkbysk01.app.n8n.cloud/webhook-test/resume-screening";
+const N8N_WEBHOOK_URL = "https://aiagentsworkbysk01.app.n8n.cloud/webhook/candidate-screening";
 
 serve(async (req) => {
   // Handle CORS preflight requests
